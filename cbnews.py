@@ -19,7 +19,7 @@ def parse_args(args: Iterable[str]):
             "Crunchbase/crunchbase-enterprise_api/1.0.3"
         )
     )
-    parser.add_argument("entity", help="entity Id")
+    parser.add_argument("entity", help="entity ID")
     parser.add_argument("output", help="Output CSV file")
     parser.add_argument("-i", "--after", help="after_id")
     parser.add_argument("-v", "--verbose", help="Be verbose")
@@ -59,6 +59,11 @@ class PressReference:
     @property
     def identifier(self) -> str:
         """ """
+        return self.reference["identifier"]["uuid"]
+
+    @property
+    def abstract(self) -> str:
+        """ """
         return self.reference["identifier"]["value"]
 
     @property
@@ -73,8 +78,10 @@ class PressReference:
 
     def as_dict(self):
         return {
+            "organization": self.organization_name,
             "author": self.author,
             "identifier": self.identifier,
+            "abstract": self.abstract,
             "url": self.url,
             "posted_on": self.posted_on,
         }
@@ -82,7 +89,14 @@ class PressReference:
     @classmethod
     def fields(cls):
         """ """
-        return ["author", "identifier", "url", "posted_on"]
+        return [
+            "organization",
+            "author",
+            "identifier",
+            "abstract",
+            "url",
+            "posted_on",
+        ]
 
 
 class PressReferences(collections.abc.Sequence):
@@ -109,30 +123,30 @@ class PressReferences(collections.abc.Sequence):
         return self.references["cards"]["press_references"]
 
 
-def retry(time=3, waitmilliseconds=30000):
+def retry(time, waitmilliseconds):
     def retry_decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             count = 0
             while count < time:
                 try:
-                    result = func(*args, **kwargs)
+                    return func(*args, **kwargs)
                 except Exception as e:
                     count += 1
                     logging.warn(
-                        f"{func} raised {e}. Retry the function after "
+                        f"{func.__name__} raised {e}. "
+                        "Retry the function after "
                         f"sleeping for {waitmilliseconds} milliseconds."
                     )
                     if time <= count:
                         raise e
-            return result
 
         return wrapper
 
     return retry_decorator
 
 
-@retry
+@retry(time=3, waitmilliseconds=30000)
 def collect_news(
     entity_id: str,
     crunchbase_api_key: str,
@@ -153,12 +167,12 @@ def collect_news(
             },
         ),
     ) as response:
-        if response.getcode() % 100 == 2:
-            pass
+        body = json.loads(response.read())
+        if response.getcode() / 100 == 2:
+            return PressReferences(body)
         else:
             logging.error(
-                f"status code: {response.getcode()}, "
-                f"error message: {json.loads(response.read())}"
+                f"status code: {response.getcode()}, error message: {body}"
             )
             logging.error(f"status code: {response.getcode()}")
             raise RuntimeError({"entity_id": entity_id, "after_id": after_id})
@@ -169,8 +183,10 @@ if __name__ == "__main__":
     configure_log(options.verbose)
 
     with open(options.output, "w") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=[])
+        writer = csv.DictWriter(csvfile, fieldnames=PressReference.fields())
+        print(dir(writer))
         writer.writeheader()
+        csvfile.flush()
         after_id = options.after
         proceed = True
         while proceed:
@@ -183,4 +199,6 @@ if __name__ == "__main__":
                 proceed = False
             else:
                 for reference in references:
+
                     writer.writerow(reference.as_dict())
+                    after_id = reference.identifier
