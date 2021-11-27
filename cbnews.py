@@ -1,4 +1,5 @@
 import sys
+import time
 import os
 from typing import Iterable, Union, Dict
 import urllib.request
@@ -9,6 +10,8 @@ import collections.abc
 import functools
 import json
 import dataclasses
+
+logger = logging.getLogger("cbnews")
 
 
 def parse_args(args: Iterable[str]):
@@ -22,7 +25,9 @@ def parse_args(args: Iterable[str]):
     parser.add_argument("entity", help="entity ID")
     parser.add_argument("output", help="Output CSV file")
     parser.add_argument("-i", "--after", help="after_id")
-    parser.add_argument("-v", "--verbose", help="Be verbose")
+    parser.add_argument(
+        "-v", "--verbose", action="store_const", const=True, help="Be verbose"
+    )
 
     options = parser.parse_args(args)
     options.crunchbase_api_key = os.environ["CRUNCHBASE_API_KEY"]
@@ -32,7 +37,8 @@ def parse_args(args: Iterable[str]):
 
 def configure_log(verbose: bool):
     """ """
-    logging.getLogger("cbnews").setLevel(
+    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    logging.getLogger(__name__).setLevel(
         logging.DEBUG if verbose else logging.INFO
     )
 
@@ -123,7 +129,7 @@ class PressReferences(collections.abc.Sequence):
         return self.references["cards"]["press_references"]
 
 
-def retry(time, waitmilliseconds):
+def retry(time, waitseconds):
     def retry_decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -133,11 +139,12 @@ def retry(time, waitmilliseconds):
                     return func(*args, **kwargs)
                 except Exception as e:
                     count += 1
-                    logging.warn(
+                    logging.getLogger(__name__).warning(
                         f"{func.__name__} raised {e}. "
                         "Retry the function after "
-                        f"sleeping for {waitmilliseconds} milliseconds."
+                        f"sleeping for {waitseconds} seconds."
                     )
+                    time.sleep(waitseconds)
                     if time <= count:
                         raise e
 
@@ -146,7 +153,7 @@ def retry(time, waitmilliseconds):
     return retry_decorator
 
 
-@retry(time=3, waitmilliseconds=30000)
+@retry(time=3, waitseconds=3)
 def collect_news(
     entity_id: str,
     crunchbase_api_key: str,
@@ -158,9 +165,12 @@ def collect_news(
         f"{url_base}/entities/organizations/{entity_id}/"
         "cards/press_references?order=posted_on%20desc"
     )
+    url = f"{url}&after_id={after_id}" if after_id else url
+    logging.getLogger(__name__).debug(f"Sending a request to {url}.")
+    logger.debug(f"Sending a request to {url}.")
     with urllib.request.urlopen(
         urllib.request.Request(
-            url=f"{url}/after_id={after_id}" if after_id else url,
+            url=url,
             headers={
                 "accept": "application/json",
                 "x-cb-user-key": crunchbase_api_key,
@@ -171,20 +181,20 @@ def collect_news(
         if response.getcode() / 100 == 2:
             return PressReferences(body)
         else:
-            logging.error(
+            logging.getLogger(__name__).error(
                 f"status code: {response.getcode()}, error message: {body}"
             )
-            logging.error(f"status code: {response.getcode()}")
+            logging.getLogger(__name__).error(
+                f"status code: {response.getcode()}"
+            )
             raise RuntimeError({"entity_id": entity_id, "after_id": after_id})
 
 
 if __name__ == "__main__":
     options = parse_args(sys.argv[1:])
     configure_log(options.verbose)
-
     with open(options.output, "w") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=PressReference.fields())
-        print(dir(writer))
         writer.writeheader()
         csvfile.flush()
         after_id = options.after
@@ -199,6 +209,5 @@ if __name__ == "__main__":
                 proceed = False
             else:
                 for reference in references:
-
                     writer.writerow(reference.as_dict())
                     after_id = reference.identifier
