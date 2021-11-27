@@ -11,8 +11,6 @@ import functools
 import json
 import dataclasses
 
-logger = logging.getLogger("cbnews")
-
 
 def parse_args(args: Iterable[str]):
     """Parse arguments"""
@@ -37,10 +35,7 @@ def parse_args(args: Iterable[str]):
 
 def configure_log(verbose: bool):
     """ """
-    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
-    logging.getLogger(__name__).setLevel(
-        logging.DEBUG if verbose else logging.INFO
-    )
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
 
 
 @dataclasses.dataclass
@@ -167,7 +162,6 @@ def collect_news(
     )
     url = f"{url}&after_id={after_id}" if after_id else url
     logging.getLogger(__name__).debug(f"Sending a request to {url}.")
-    logger.debug(f"Sending a request to {url}.")
     with urllib.request.urlopen(
         urllib.request.Request(
             url=url,
@@ -210,4 +204,5 @@ if __name__ == "__main__":
             else:
                 for reference in references:
                     writer.writerow(reference.as_dict())
+                    csvfile.flush()
                     after_id = reference.identifier
