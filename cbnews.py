@@ -1,6 +1,7 @@
 import sys
 import time
 import os
+import datetime
 from typing import Iterable, Union, Dict
 import urllib.request
 import csv
@@ -22,7 +23,18 @@ def parse_args(args: Iterable[str]):
     )
     parser.add_argument("entity", help="entity ID")
     parser.add_argument("output", help="Output CSV file")
-    parser.add_argument("-i", "--after", help="after_id")
+    parser.add_argument("-a", "--after", help="after_id")
+    parser.add_argument(
+        "-b",
+        "--bound",
+        default=datetime.datetime.fromisoformat("1970-01-01"),
+        type=datetime.datetime.fromisoformat,
+        help=(
+            "Collect news posted on the dates "
+            "equal or greater than the specified date."
+        ),
+    )
+
     parser.add_argument(
         "-v", "--verbose", action="store_const", const=True, help="Be verbose"
     )
@@ -41,7 +53,7 @@ def configure_log(verbose: bool):
 @dataclasses.dataclass
 class PressReference:
     """
-    identifier looks like title.
+    identifier looks like a title.
     """
 
     organization_name: str
@@ -76,6 +88,10 @@ class PressReference:
     def posted_on(self) -> str:
         """ """
         return self.reference["posted_on"]
+
+    def is_posted_on_egt(self, iso_format_date: datetime.datetime):
+        posted_on = datetime.datetime.fromisoformat(self.posted_on)
+        return posted_on >= iso_format_date
 
     def as_dict(self):
         return {
@@ -175,13 +191,18 @@ def collect_news(
         if response.getcode() / 100 == 2:
             return PressReferences(body)
         else:
-            logging.getLogger(__name__).error(
+            logger = logging.getLogger(__name__)
+            logger.error(
                 f"status code: {response.getcode()}, error message: {body}"
             )
-            logging.getLogger(__name__).error(
-                f"status code: {response.getcode()}"
+            logger.error(f"status code: {response.getcode()}")
+            raise RuntimeError(
+                {
+                    "message": "HTTP request failure.",
+                    "entity_id": entity_id,
+                    "after_id": after_id,
+                }
             )
-            raise RuntimeError({"entity_id": entity_id, "after_id": after_id})
 
 
 if __name__ == "__main__":
@@ -190,7 +211,6 @@ if __name__ == "__main__":
     with open(options.output, "w") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=PressReference.fields())
         writer.writeheader()
-        csvfile.flush()
         after_id = options.after
         proceed = True
         while proceed:
@@ -200,9 +220,11 @@ if __name__ == "__main__":
                 crunchbase_api_key=options.crunchbase_api_key,
             )
             if len(references) == 0:
-                proceed = False
+                break
             else:
                 for reference in references:
-                    writer.writerow(reference.as_dict())
-                    csvfile.flush()
-                    after_id = reference.identifier
+                    if reference.is_posted_on_egt(options.bound):
+                        writer.writerow(reference.as_dict())
+                        after_id = reference.identifier
+                    else:
+                        proceed = False
