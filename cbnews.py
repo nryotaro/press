@@ -17,9 +17,17 @@ def parse_args(args: Iterable[str]):
     """Parse arguments"""
     parser = argparse.ArgumentParser(
         description=(
-            "https://app.swaggerhub.com/apis-docs/"
-            "Crunchbase/crunchbase-enterprise_api/1.0.3"
-        )
+            "A command line ulitity to get"
+            "press refrerences from Crunchbase.\n"
+            "For more details, see"
+            " https://app.swaggerhub.com/apis-docs/"
+            "Crunchbase/crunchbase-enterprise_api/1.0.3\n\n"
+            "Examples:\n\n"
+            "collect press references posted on dates after 2017-01-01 \n"
+            "with siemens entity ID. \n\n"
+            f"> python3 {__file__} -b 2017-01-01 siemens output.csv.\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("entity", help="entity ID")
     parser.add_argument("output", help="Output CSV file")
